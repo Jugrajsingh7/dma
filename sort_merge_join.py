@@ -1,42 +1,87 @@
-def sort_merge_join(emp_file, dept_file, emp_key, dept_key):
-    # Step 1: Read both files
-    with open(emp_file, 'r') as emp:
-        emp_data = [line.strip().split(',') for line in emp.readlines()]
-        emp_headers = emp_data[0]  # employee headers
-        emp_rows = emp_data[1:]  # employee data
+import csv
 
-    with open(dept_file, 'r') as dept:
-        dept_data = [line.strip().split(',') for line in dept.readlines()]
-        dept_headers = dept_data[0]  # department headers
-        dept_rows = dept_data[1:]  # department data
+EMPLOYEE_FILE = "Employee.csv"
+DEPARTMENT_FILE = "Department (1).csv"
+OUTPUT_FILE = "Employee_Department_join.csv"
 
-    # Step 2: Sort both datasets by their respective keys
-    emp_rows.sort(key=lambda x: x[emp_key])
-    dept_rows.sort(key=lambda x: x[dept_key])
+EMP_KEY = "dno"        # Employee attribute A
+DEPT_KEY = "dnumber"   # Department attribute B
 
-    # Step 3: Initialize variables for the merge process
-    merged_data = []
-    i, j = 0, 0
+def read_csv(path: str):
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+        return rows, reader.fieldnames
 
-    # Step 4: Merge both sorted lists
-    while i < len(emp_rows) and j < len(dept_rows):
-        if emp_rows[i][emp_key] == dept_rows[j][dept_key]:  # When keys are equal
-            merged_data.append(emp_rows[i] + dept_rows[j])  # Combine records
-            i += 1
+def sort_merge_join(R, S, keyR: str, keyS: str):
+    """Sort-merge equi-join in the style of the lecture slide.
+
+    Steps:
+      1) sort tuples in R on attribute A (keyR)
+      2) sort tuples in S on attribute B (keyS)
+      3) merge scan with i, j pointers
+      4) when R[i][A] == S[j][B], output the combined tuple(s) to T,
+         including handling duplicates on either side.
+
+    Returns list of joined dict rows where Department columns are prefixed with dept_.
+    """
+
+    R_sorted = sorted(R, key=lambda r: int(r[keyR]))
+    S_sorted = sorted(S, key=lambda s: int(s[keyS]))
+
+    i = 0
+    j = 0
+    n = len(R_sorted)
+    m = len(S_sorted)
+
+    out = []
+
+    while i < n and j < m:
+        a = int(R_sorted[i][keyR])
+        b = int(S_sorted[j][keyS])
+
+        if a > b:
             j += 1
-        elif emp_rows[i][emp_key] < dept_rows[j][dept_key]:  # Move emp pointer
+        elif a < b:
             i += 1
-        else:  # Move dept pointer
-            j += 1
+        else:
+            # Collect the run of matching S tuples (duplicates of key b)
+            j_start = j
+            s_run = []
+            while j < m and int(S_sorted[j][keyS]) == a:
+                s_run.append(S_sorted[j])
+                j += 1
 
-    # Step 5: Prepare headers for the output
-    output_headers = emp_headers + [f'dept_{header}' for header in dept_headers]
+            # Collect the run of matching R tuples (duplicates of key a)
+            i_start = i
+            r_run = []
+            while i < n and int(R_sorted[i][keyR]) == a:
+                r_run.append(R_sorted[i])
+                i += 1
 
-    # Step 6: Write output to a CSV file
-    with open('Employee_Department_join.csv', 'w', encoding='utf-8', newline='\n') as outfile:
-        outfile.write(','.join(output_headers) + '\n')  # write headers
-        for row in merged_data:
-            outfile.write(','.join(row) + '\n')  # write joined records
+            # Output all combinations of r_run x s_run
+            for rrow in r_run:
+                for srow in s_run:
+                    combined = dict(rrow)
+                    combined.update({f"dept_{k}": v for k, v in srow.items()})
+                    out.append(combined)
 
-# Example usage
-# sort_merge_join('Employee.csv', 'Department (1).csv', 2, 0)
+            # Continue merge scan with i and j already advanced past their runs
+
+    return out
+
+def main():
+    employees, emp_fields = read_csv(EMPLOYEE_FILE)
+    departments, dept_fields = read_csv(DEPARTMENT_FILE)
+
+    joined = sort_merge_join(employees, departments, EMP_KEY, DEPT_KEY)
+
+    out_fields = list(emp_fields) + [f"dept_{f}" for f in dept_fields]
+
+    with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=out_fields)
+        writer.writeheader()
+        writer.writerows(joined)
+
+if __name__ == "__main__":
+    main()
